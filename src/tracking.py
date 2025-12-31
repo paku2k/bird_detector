@@ -14,10 +14,10 @@ class ObjectTracker:
         tracker_name = self.tracker_type.upper()
 
         # VERSUCH 1: OpenCV 4.5+ Legacy API
-        if hasattr(cv2, 'legacy'):
-            if tracker_name == "CSRT": return cv2.legacy.TrackerCSRT_create()
-            if tracker_name == "MOSSE": return cv2.legacy.TrackerMOSSE_create()
-            if tracker_name == "KCF": return cv2.legacy.TrackerKCF_create()
+        # if hasattr(cv2, 'legacy'):
+        #     if tracker_name == "CSRT": return cv2.legacy.TrackerCSRT_create()
+        #     if tracker_name == "MOSSE": return cv2.legacy.TrackerMOSSE_create()
+        #     if tracker_name == "KCF": return cv2.legacy.TrackerKCF_create()
 
         # VERSUCH 2: Alte OpenCV API
         if tracker_name == "CSRT" and hasattr(cv2, 'TrackerCSRT_create'):
@@ -81,6 +81,14 @@ class ObjectTracker:
     def stop(self):
         self.is_tracking = False
         self.tracker = None
+    
+    def is_active(self):
+        """Check if tracker is currently active"""
+        return self.is_tracking
+    
+    def get_current_box(self):
+        """Get current tracked bounding box (if tracking)"""
+        return None  # Box is returned by update() method
 
     @staticmethod
     def calculate_iou(boxA, boxB):

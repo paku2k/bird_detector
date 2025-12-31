@@ -9,12 +9,15 @@ except ImportError:
 from config import MODEL_PATH, MIN_CONFIDENCE
 
 class YoloDetector:
-    def __init__(self):
-        if not os.path.exists(MODEL_PATH):
-            raise FileNotFoundError(f"YOLO Modell nicht gefunden: {MODEL_PATH}")
+    def __init__(self, model_path=None):
+        # Allow override of model path
+        self.model_path = model_path if model_path is not None else MODEL_PATH
+        
+        if not os.path.exists(self.model_path):
+            raise FileNotFoundError(f"YOLO Modell nicht gefunden: {self.model_path}")
 
-        print(f"🚀 Lade YOLO11 Modell: {os.path.basename(MODEL_PATH)}")
-        self.interpreter = tflite.Interpreter(model_path=MODEL_PATH)
+        print(f"🚀 Lade YOLO11 Modell: {os.path.basename(self.model_path)}")
+        self.interpreter = tflite.Interpreter(model_path=self.model_path)
         self.interpreter.allocate_tensors()
 
         self.input_details = self.interpreter.get_input_details()
@@ -138,11 +141,11 @@ class YoloDetector:
         
         return results
 
-    def detect(self, img):
+    def detect(self, img, frame_id=None):
         """
         Original-Methode (Kompatibilitätsmodus):
         Gibt nur den BESTEN VOGEL zurück.
-        Return: (found, score, box)
+        Return: (found, score, box) or (found, score, box, frame_id) if frame_id provided
         """
         all_detections = self.detect_all_objects(img, MIN_CONFIDENCE)
         
@@ -157,6 +160,10 @@ class YoloDetector:
                     best_bird = box
         
         if best_bird:
+            if frame_id is not None:
+                return True, best_bird_score, best_bird, frame_id
             return True, best_bird_score, best_bird
             
+        if frame_id is not None:
+            return False, 0.0, None, frame_id
         return False, 0.0, None

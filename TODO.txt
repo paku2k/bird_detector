@@ -1,0 +1,3 @@
+1. Robusteres History tracking
+2. Servo Pan Tilt
+3. Bounding box mit bewegung verschieben --> wie effizient machen?

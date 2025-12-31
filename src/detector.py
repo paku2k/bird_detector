@@ -19,116 +19,94 @@ class ObjectDetector:
         self.input_details = self.interpreter.get_input_details()
         self.output_details = self.interpreter.get_output_details()
         
-        # 1. Automatische Erkennung der Input-Größe
-        # EfficientDet nutzt z.B. 320x320, MobileNet 300x300
         self.input_shape = self.input_details[0]['shape'] 
         self.input_h = self.input_shape[1]
         self.input_w = self.input_shape[2]
         self.input_index = self.input_details[0]['index']
         self.input_dtype = self.input_details[0]['dtype']
         
-        print(f"🤖 Modell geladen. Input-Größe: {self.input_w}x{self.input_h}, Typ: {self.input_dtype}")
+        print(f"🤖 Standard-Modell geladen (EfficientDet/SSD). Input: {self.input_w}x{self.input_h}")
 
-    def detect(self, img_crop):
+    def detect_all_objects(self, img, conf_threshold=MIN_CONFIDENCE):
         """
-        Führt die Erkennung auf einem Bildausschnitt durch.
-        Return: (found, score, (x, y, w, h))
+        Gibt ALLE Objekte zurück. Format kompatibel zu YoloDetector.
+        Return: [(class_id, score, (x, y, w, h)), ...]
         """
-        if img_crop is None or img_crop.size == 0:
-            return False, 0.0, None
+        if img is None: return []
 
-        # 1. Resize auf die VOM MODELL geforderte Größe (dynamisch)
-        input_data = cv2.resize(img_crop, (self.input_w, self.input_h))
+        # 1. Resize & Preprocessing
+        input_data = cv2.resize(img, (self.input_w, self.input_h))
 
-        # 2. Input vorbereiten
-        # Wenn wir nur einen Kanal haben (Grayscale), machen wir daraus 3 (Fake-RGB)
         if len(input_data.shape) == 2: 
             input_data = cv2.merge([input_data, input_data, input_data])
             
-        # Farbe korrigieren: TFLite Modelle erwarten meist RGB (OpenCV liefert BGR)
         input_data = cv2.cvtColor(input_data, cv2.COLOR_BGR2RGB)
-        
-        # Batch-Dimension hinzufügen: [H, W, 3] -> [1, H, W, 3]
         input_data = np.expand_dims(input_data, axis=0)
 
-        # Normalisierung (nur nötig, wenn das Modell Float erwartet)
         if self.input_dtype == np.float32:
             input_data = (np.float32(input_data) - 127.5) / 127.5
         else:
-            # Bei uint8 Modellen (wie EfficientDet Int8) einfach die 0-255 Werte nehmen
             input_data = np.uint8(input_data)
 
-        # 3. Inferenz
+        # 2. Inferenz
         self.interpreter.set_tensor(self.input_index, input_data)
         self.interpreter.invoke()
 
-        # 4. Outputs intelligent zuordnen
-        # Wir holen alle Output-Tensoren
+        # 3. Outputs holen
         outputs = [self.interpreter.get_tensor(self.output_details[i]['index']) for i in range(len(self.output_details))]
-        
+
         boxes, classes, scores = None, None, None
 
+        # Intelligentes Mapping
         for out in outputs:
-            # Boxen sind immer [1, N, 4] (Koordinaten)
-            if out.ndim == 3 and out.shape[2] == 4:
-                boxes = out[0]
-            # Scores sind [1, N] und haben oft Float-Werte
-            elif out.ndim == 2 and (out.dtype == np.float32 or out.dtype == np.float16):
-                scores = out[0]
-            # Klassen sind [1, N]
-            elif out.ndim == 2:
-                classes = out[0]
+            if out.ndim == 3 and out.shape[2] == 4: boxes = out[0]
+            elif out.ndim == 2 and (out.dtype == np.float32 or out.dtype == np.float16): scores = out[0]
+            elif out.ndim == 2: classes = out[0]
 
-        # Fallback, falls Heuristik versagt 
+        # Fallback für EfficientDet Lite Reihenfolge
+        if boxes is None and len(outputs) >= 4:
+             # Oft: 0=Scores, 1=Boxes, 2=Count, 3=Classes
+             # Wir probieren eine typische Reihenfolge, falls Auto-Detect fehlschlug
+             scores = outputs[0][0]
+             boxes = outputs[1][0]
+             classes = outputs[3][0]
+
         if boxes is None or scores is None or classes is None:
-            # Harte Zuweisung für typische EfficientDet Lite Reihenfolge:
-            # Index 1 = Boxen, Index 3 = Klassen, Index 0 = Scores (kann variieren!)
-            # Wir brechen hier lieber sicher ab oder loggen Warning, statt Crash.
-            # Für EfficientDet Lite0 int8 ist oft: 0=Scores, 1=Boxes, 2=Count, 3=Classes
-            # Wir versuchen es mit festen Indizes als letzten Versuch, falls Shapes nicht eindeutig waren:
-            if len(outputs) >= 4:
-                scores = outputs[0][0]
-                boxes = outputs[1][0]
-                # classes = outputs[3][0] # Index 3 bei manchen Versionen
-                # Wir suchen den Integer Tensor für Klassen
-                for i, o in enumerate(outputs):
-                    if i != 0 and i != 1 and o.ndim == 2:
-                        classes = o[0]
-                        break
+            return []
 
-        if boxes is None:
-            return False, 0.0, None
-
-        # 5. Bestes Ergebnis suchen
-        best_bird_score = 0.0
-        best_box = None
+        results = []
+        h_orig, w_orig = img.shape[:2]
 
         for i in range(len(scores)):
             score = float(scores[i])
-            if score < MIN_CONFIDENCE:
-                continue
+            if score < conf_threshold: continue
             
-            # EfficientDet nutzt COCO Labels. 
-            # ID 16 ist meistens "Bird". Wir prüfen den Bereich 15-17 sicherheitshalber.
+            ymin, xmin, ymax, xmax = boxes[i]
+            
+            # EfficientDet gibt normalisierte Boxen (0-1) zurück
+            left = int(xmin * w_orig)
+            top = int(ymin * h_orig)
+            width = int((xmax - xmin) * w_orig)
+            height = int((ymax - ymin) * h_orig)
+            
             class_id = int(classes[i])
             
-            if class_id in [15, 16, 17]: 
-                if score > best_bird_score:
-                    best_bird_score = score
-                    
-                    # Box extrahieren: [ymin, xmin, ymax, xmax]
-                    ymin, xmin, ymax, xmax = boxes[i]
-                    
-                    # Koordinaten auf den Crop hochrechnen
-                    h_crop, w_crop = img_crop.shape[:2]
-                    x = int(xmin * w_crop)
-                    y = int(ymin * h_crop)
-                    w = int((xmax - xmin) * w_crop)
-                    h = int((ymax - ymin) * h_crop)
-                    
-                    best_box = (x, y, w, h)
+            results.append((class_id, score, (left, top, width, height)))
+            
+        return results
 
-        if best_box:
-            return True, best_bird_score, best_box
+    def detect(self, img_crop):
+        """Wrapper für Kompatibilität mit altem Code"""
+        all_objs = self.detect_all_objects(img_crop, MIN_CONFIDENCE)
         
+        best_bird_score = 0.0
+        best_box = None
+
+        for cid, score, box in all_objs:
+            # ID 16 = Bird in COCO (manchmal 15/17 je nach offset)
+            if cid in [15, 16, 17] and score > best_bird_score:
+                best_bird_score = score
+                best_box = box
+        
+        if best_box: return True, best_bird_score, best_box
         return False, 0.0, None
