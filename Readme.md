@@ -5,7 +5,7 @@
 The system is specifically optimized for hardware with limited resources (RPi 4, 1GB RAM) and solves the problem of detecting stationary (perched) birds through a hybrid search strategy.
 
 ## Video Demonstration
-[videos/bird_detector_1.mp4](https://github.com/paku2k/bird_detector/blob/main/videos/bird_detector_1.mp4)
+https://github.com/user-attachments/assets/33b3fa81-d2da-4ec2-9131-09620b3189c7
 
 ## Project Objective
 Autonomous detection and expulsion of birds within a defined area. The system distinguishes between "moving targets" (incoming flight) and "static targets" (already landed).
