@@ -6,7 +6,7 @@ The system is specifically optimized for hardware with limited resources (RPi 4,
 
 ## Video Demonstration
 <video width="100%" height="auto" autoplay muted loop>
-  <source src="bird_detector_1.mp4" type="video/mp4">
+  <source src="videos/bird_detector_1.mp4" type="video/mp4">
   Your browser does not support the video tag.
 </video>
 
